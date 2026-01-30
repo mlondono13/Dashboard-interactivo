@@ -1,69 +1,105 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.pyplot as plt
 
-# Configuración de la página
-st.set_page_config(page_title="EDA Energías Renovables", layout="wide")
+# Configuración inicial
+st.set_page_config(page_title="EDA Dinámico", layout="wide")
 
-st.title("⚡ Dashboard de Análisis de Energía Renovable")
-st.markdown("Sube tu archivo `.csv` para comenzar el análisis exploratorio.")
+st.title("📊 Análisis Exploratorio de Datos Dinámico")
+st.markdown("Carga tu archivo CSV y explora las variables según su naturaleza.")
 
-# --- SECCIÓN DE CARGA DE DATOS ---
-uploaded_file = st.file_uploader("Selecciona un archivo CSV", type=['csv'])
+# --- CARGA DE DATOS ---
+uploaded_file = st.file_uploader("Sube tu archivo CSV", type=['csv'])
 
 if uploaded_file is not None:
     try:
-        # Intentamos leer el archivo
         df = pd.read_csv(uploaded_file)
         
-        # Validación mínima: verificar si existen columnas esperadas
-        # Si el archivo subido es el de 'energia_renovable.csv', procesamos fechas
-        if 'Fecha_Entrada_Operacion' in df.columns:
-            df['Fecha_Entrada_Operacion'] = pd.to_datetime(df['Fecha_Entrada_Operacion'])
+        # --- BARRA LATERAL (FILTROS DINÁMICOS) ---
+        st.sidebar.header("⚙️ Configuración de Filtros")
+        
+        # Identificar tipos de columnas automáticamente
+        cols_cat = df.select_dtypes(include=['object']).columns.tolist()
+        cols_num = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
 
-        st.success("¡Datos cargados correctamente!")
+        # Filtro dinámico por una variable categórica (si existe)
+        if cols_cat:
+            cat_filter = st.sidebar.selectbox("Filtrar por categoría:", ["Todos"] + cols_cat)
+            if cat_filter != "Todos":
+                val_filter = st.sidebar.multiselect(f"Valores de {cat_filter}:", 
+                                                   options=df[cat_filter].unique(),
+                                                   default=df[cat_filter].unique())
+                df = df[df[cat_filter].isin(val_filter)]
 
-        # --- EXPLORACIÓN INICIAL ---
-        tabs = st.tabs(["📊 Visualización General", "📈 Relaciones y Filtros", "🔍 Datos Crudos"])
+        # --- SECCIONES POR TABS ---
+        tab1, tab2, tab3 = st.tabs(["🔢 Cuantitativos", "🗂️ Cualitativos", "📈 Gráficos Personalizados"])
 
-        with tabs[2]:
-            st.subheader("Vista Previa de los Datos")
-            st.dataframe(df.head(10))
-            st.subheader("Estadísticas Descriptivas")
-            st.write(df.describe())
+        # --- SECCIÓN CUANTITATIVA ---
+        with tab1:
+            st.header("Análisis de Variables Numéricas")
+            if cols_num:
+                col_sel = st.selectbox("Selecciona una variable para ver su distribución:", cols_num)
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    fig_hist = px.histogram(df, x=col_sel, marginal="box", 
+                                            title=f"Histograma de {col_sel}",
+                                            color_discrete_sequence=['indianred'])
+                    st.plotly_chart(fig_hist, use_container_width=True)
+                
+                with c2:
+                    st.write("**Estadísticas Descriptivas:**")
+                    st.write(df[col_sel].describe())
+                
+                st.subheader("Matriz de Correlación")
+                if len(cols_num) > 1:
+                    fig_corr, ax = plt.subplots()
+                    sns.heatmap(df[cols_num].corr(), annot=True, cmap='coolwarm', ax=ax)
+                    st.pyplot(fig_corr)
+            else:
+                st.warning("No hay columnas numéricas detectadas.")
 
-        with tabs[0]:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("Distribución por Tecnología")
-                if 'Tecnologia' in df.columns:
-                    fig_pie = px.pie(df, names='Tecnologia', hole=0.3, color_discrete_sequence=px.colors.sequential.RdBu)
-                    st.plotly_chart(fig_pie, use_container_width=True)
-                else:
-                    st.warning("No se encontró la columna 'Tecnologia'")
+        # --- SECCIÓN CUALITATIVA ---
+        with tab2:
+            st.header("Análisis de Variables Categóricas")
+            if cols_cat:
+                cat_sel = st.selectbox("Selecciona una categoría para contar:", cols_cat)
+                
+                fig_bar = px.bar(df[cat_sel].value_counts().reset_index(), 
+                                 x='index', y=cat_sel, 
+                                 labels={'index': cat_sel, cat_sel: 'Conteo'},
+                                 title=f"Frecuencia de {cat_sel}",
+                                 color='index')
+                st.plotly_chart(fig_bar, use_container_width=True)
+                
+                st.write("**Tabla de Frecuencias:**")
+                st.table(df[cat_sel].value_counts())
+            else:
+                st.warning("No hay columnas categóricas detectadas.")
 
-            with col2:
-                st.subheader("Capacidad por Operador")
-                if 'Operador' in df.columns and 'Capacidad_Instalada_MW' in df.columns:
-                    fig_bar = px.bar(df, x='Operador', y='Capacidad_Instalada_MW', color='Tecnologia')
-                    st.plotly_chart(fig_bar, use_container_width=True)
-
-        with tabs[1]:
-            st.subheader("Análisis de Inversión vs Eficiencia")
-            if 'Inversion_Inicial_MUSD' in df.columns and 'Eficiencia_Planta_Pct' in df.columns:
-                fig_scatter = px.scatter(df, x='Inversion_Inicial_MUSD', y='Eficiencia_Planta_Pct', 
-                                         color='Tecnologia', size='Capacidad_Instalada_MW',
-                                         hover_data=['ID_Proyecto'])
+        # --- SECCIÓN DE GRÁFICAS DINÁMICAS ---
+        with tab3:
+            st.header("Explorador de Relaciones")
+            if len(cols_num) >= 2:
+                x_axis = st.selectbox("Eje X (Numérico):", cols_num, index=0)
+                y_axis = st.selectbox("Eje Y (Numérico):", cols_num, index=1)
+                
+                color_axis = None
+                if cols_cat:
+                    color_axis = st.selectbox("Color por (Categoría):", ["Ninguno"] + cols_cat)
+                
+                fig_scatter = px.scatter(df, x=x_axis, y=y_axis, 
+                                         color=color_axis if color_axis != "Ninguno" else None,
+                                         title=f"Relación {x_axis} vs {y_axis}",
+                                         trendline="ols" if color_axis == "Ninguno" else None)
                 st.plotly_chart(fig_scatter, use_container_width=True)
+            else:
+                st.warning("Se necesitan al menos 2 columnas numéricas para comparar.")
 
     except Exception as e:
-        # El bloque 'try' captura cualquier error (archivo corrupto, columnas faltantes, etc.)
-        st.error(f"❌ Error al procesar el archivo: {e}")
-        st.info("Asegúrate de que el archivo sea un CSV válido y tenga el formato correcto.")
+        st.error(f"Hubo un error al procesar los datos: {e}")
 
 else:
-    st.info("Esperando la carga del archivo... Por favor, sube el archivo 'energia_renovable.csv' en el panel superior.")
-    # Imagen de ejemplo de cómo se vería el componente de carga
+    st.info("👋 ¡Bienvenido! Por favor sube un archivo CSV en el panel de la izquierda para comenzar.")
