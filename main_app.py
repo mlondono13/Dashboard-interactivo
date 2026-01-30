@@ -1,48 +1,69 @@
-#Acá irá el código de Python para el Dashboard
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import seaborn as sns
 import matplotlib.pyplot as plt
+import seaborn as sns
 
-st.set_page_config(page_title="EDA Energía Renovable", layout="wide")
+# Configuración de la página
+st.set_page_config(page_title="EDA Energías Renovables", layout="wide")
 
-st.title("⚡ Análisis Exploratorio: Proyectos de Energía")
+st.title("⚡ Dashboard de Análisis de Energía Renovable")
+st.markdown("Sube tu archivo `.csv` para comenzar el análisis exploratorio.")
 
-# Carga de datos
-@st.cache_data
-def load_data():
-    df = pd.read_csv('energia_renovable.csv')
-    df['Fecha_Entrada_Operacion'] = pd.to_datetime(df['Fecha_Entrada_Operacion'])
-    return df
+# --- SECCIÓN DE CARGA DE DATOS ---
+uploaded_file = st.file_uploader("Selecciona un archivo CSV", type=['csv'])
 
-df = load_data()
+if uploaded_file is not None:
+    try:
+        # Intentamos leer el archivo
+        df = pd.read_csv(uploaded_file)
+        
+        # Validación mínima: verificar si existen columnas esperadas
+        # Si el archivo subido es el de 'energia_renovable.csv', procesamos fechas
+        if 'Fecha_Entrada_Operacion' in df.columns:
+            df['Fecha_Entrada_Operacion'] = pd.to_datetime(df['Fecha_Entrada_Operacion'])
 
-# Sidebar para filtros
-st.sidebar.header("Filtros")
-tecnologia = st.sidebar.multiselect("Selecciona Tecnología:", 
-                                    options=df["Tecnologia"].unique(),
-                                    default=df["Tecnologia"].unique())
+        st.success("¡Datos cargados correctamente!")
 
-df_selection = df[df["Tecnologia"].isin(tecnologia)]
+        # --- EXPLORACIÓN INICIAL ---
+        tabs = st.tabs(["📊 Visualización General", "📈 Relaciones y Filtros", "🔍 Datos Crudos"])
 
-# Métricas principales
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Proyectos", len(df_selection))
-col2.metric("Capacidad Total (MW)", f"{df_selection['Capacidad_Instalada_MW'].sum():,.2f}")
-col3.metric("Inversión Promedio (MUSD)", f"{df_selection['Inversion_Inicial_MUSD'].mean():,.2f}")
+        with tabs[2]:
+            st.subheader("Vista Previa de los Datos")
+            st.dataframe(df.head(10))
+            st.subheader("Estadísticas Descriptivas")
+            st.write(df.describe())
 
-# Gráficos Interactivos
-st.markdown("---")
-c1, c2 = st.columns(2)
+        with tabs[0]:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Distribución por Tecnología")
+                if 'Tecnologia' in df.columns:
+                    fig_pie = px.pie(df, names='Tecnologia', hole=0.3, color_discrete_sequence=px.colors.sequential.RdBu)
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                else:
+                    st.warning("No se encontró la columna 'Tecnologia'")
 
-with c1:
-    st.subheader("Distribución por Tecnología")
-    fig_tech = px.pie(df_selection, names='Tecnologia', values='Capacidad_Instalada_MW', hole=0.4)
-    st.plotly_chart(fig_tech, use_container_width=True)
+            with col2:
+                st.subheader("Capacidad por Operador")
+                if 'Operador' in df.columns and 'Capacidad_Instalada_MW' in df.columns:
+                    fig_bar = px.bar(df, x='Operador', y='Capacidad_Instalada_MW', color='Tecnologia')
+                    st.plotly_chart(fig_bar, use_container_width=True)
 
-with c2:
-    st.subheader("Inversión vs Generación Diaria")
-    fig_scatter = px.scatter(df_selection, x="Inversion_Inicial_MUSD", y="Generacion_Diaria_MWh", 
-                             color="Tecnologia", size="Eficiencia_Planta_Pct", hover_name="ID_Proyecto")
-    st.plotly_chart(fig_scatter, use_container_width=True)
+        with tabs[1]:
+            st.subheader("Análisis de Inversión vs Eficiencia")
+            if 'Inversion_Inicial_MUSD' in df.columns and 'Eficiencia_Planta_Pct' in df.columns:
+                fig_scatter = px.scatter(df, x='Inversion_Inicial_MUSD', y='Eficiencia_Planta_Pct', 
+                                         color='Tecnologia', size='Capacidad_Instalada_MW',
+                                         hover_data=['ID_Proyecto'])
+                st.plotly_chart(fig_scatter, use_container_width=True)
+
+    except Exception as e:
+        # El bloque 'try' captura cualquier error (archivo corrupto, columnas faltantes, etc.)
+        st.error(f"❌ Error al procesar el archivo: {e}")
+        st.info("Asegúrate de que el archivo sea un CSV válido y tenga el formato correcto.")
+
+else:
+    st.info("Esperando la carga del archivo... Por favor, sube el archivo 'energia_renovable.csv' en el panel superior.")
+    # Imagen de ejemplo de cómo se vería el componente de carga
