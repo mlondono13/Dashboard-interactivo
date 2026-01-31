@@ -4,112 +4,118 @@ import plotly.express as px
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-# Configuración de página
-st.set_page_config(page_title="Explorador Universal de Datos", layout="wide")
+# 1. CONFIGURACIÓN DE LA PÁGINA
+st.set_page_config(page_title="Analizador Universal de Datos", layout="wide")
 
-st.title("📂 Analizador de Datos Universal (EDA)")
-st.markdown("Sube cualquier archivo CSV y el sistema detectará automáticamente las variables.")
+st.title("📂 Explorador de Datos Inteligente (EDA)")
+st.markdown("Carga tu archivo CSV y la herramienta adaptará las gráficas automáticamente.")
 
 # --- CARGA DE DATOS ---
 uploaded_file = st.file_uploader("Sube tu archivo CSV aquí", type=['csv'])
 
 if uploaded_file is not None:
     try:
-        # Intentar leer el archivo
+        # 2. SOLUCIÓN A COLUMNAS DUPLICADAS
         df = pd.read_csv(uploaded_file)
         
-        # Limpieza básica para evitar errores en gráficas
+        # Renombrar columnas duplicadas automáticamente (ej. Sensor, Sensor_1)
+        cols = pd.Series(df.columns)
+        for i, col in enumerate(cols):
+            if (cols == col).sum() > 1:
+                count = list(cols[:i]).count(col)
+                if count > 0:
+                    cols[i] = f"{col}_{count}"
+        df.columns = cols
+
+        # Limpieza básica
         df = df.dropna()
 
-        # IDENTIFICACIÓN DINÁMICA DE COLUMNAS
-        cols_num = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
+        # 3. DETECCIÓN AUTOMÁTICA DE VARIABLES
+        # Numéricas: float e int / Categóricas: object y category
+        cols_num = df.select_dtypes(include=['number']).columns.tolist()
         cols_cat = df.select_dtypes(include=['object', 'category']).columns.tolist()
 
-        # --- SIDEBAR DINÁMICO ---
+        # --- SIDEBAR DINÁMICO (FILTROS) ---
         st.sidebar.header("⚙️ Filtros Globales")
         if cols_cat:
-            col_filtro = st.sidebar.selectbox("Filtrar por:", ["Ninguno"] + cols_cat)
-            if col_filtro != "Ninguno":
+            col_filtro = st.sidebar.selectbox("Segmentar datos por:", ["Sin filtro"] + cols_cat)
+            if col_filtro != "Sin filtro":
                 opciones = st.sidebar.multiselect(f"Valores de {col_filtro}:", 
                                                  options=df[col_filtro].unique().tolist(),
                                                  default=df[col_filtro].unique().tolist())
                 df = df[df[col_filtro].isin(opciones)]
 
-        # --- SECCIONES EDA ---
+        # --- SECCIONES DEL EDA (TABS) ---
         tab1, tab2, tab3 = st.tabs(["🔢 Cuantitativo", "🗂️ Cualitativo", "📈 Gráficas Cruzadas"])
 
-        # 1. ANÁLISIS CUANTITATIVO
+        # TAB 1: ANÁLISIS NUMÉRICO
         with tab1:
             if cols_num:
-                st.subheader("Análisis de Variables Numéricas")
-                var_num = st.selectbox("Selecciona Variable Numérica:", cols_num)
+                st.subheader("Distribución de Variables Numéricas")
+                var_num = st.selectbox("Selecciona una métrica:", cols_num)
                 
                 c1, c2 = st.columns([2, 1])
                 with c1:
-                    # CORRECCIÓN: Histogramas directos
                     fig_hist = px.histogram(df, x=var_num, marginal="box", 
-                                            title=f"Distribución de {var_num}",
-                                            color_discrete_sequence=['#636EFA'])
+                                            title=f"Análisis de {var_num}",
+                                            color_discrete_sequence=['#3366CC'])
                     st.plotly_chart(fig_hist, use_container_width=True)
                 with c2:
-                    st.write("**Estadísticas:**")
+                    st.write("**Estadísticas Descriptivas:**")
                     st.table(df[var_num].describe())
             else:
-                st.warning("No hay columnas numéricas.")
+                st.warning("No se detectaron columnas numéricas.")
 
-        # 2. ANÁLISIS CUALITATIVO (AQUÍ ESTABA EL ERROR)
+        # TAB 2: ANÁLISIS CATEGÓRICO
         with tab2:
             if cols_cat:
-                st.subheader("Análisis de Variables Categóricas")
-                var_cat = st.selectbox("Selecciona Variable Categórica:", cols_cat)
+                st.subheader("Análisis de Frecuencias")
+                var_cat = st.selectbox("Selecciona una categoría:", cols_cat)
                 
-                # CORRECCIÓN: Usamos un método más seguro para el conteo
+                # Solución al error de 'index': Renombrar columnas explícitamente
                 df_counts = df[var_cat].value_counts().reset_index()
-                # Renombramos explícitamente las columnas para evitar el error de 'index'
                 df_counts.columns = [var_cat, 'conteo']
                 
                 fig_bar = px.bar(df_counts, 
                                  x=var_cat, 
                                  y='conteo', 
-                                 title=f"Frecuencia de {var_cat}",
-                                 color=var_cat)
+                                 title=f"Distribución de {var_cat}",
+                                 color=var_cat,
+                                 color_discrete_sequence=px.colors.qualitative.Pastel)
                 st.plotly_chart(fig_bar, use_container_width=True)
             else:
-                st.warning("No hay columnas categóricas.")
+                st.warning("No se detectaron columnas categóricas.")
 
-        # 3. GRÁFICAS CRUZADAS
+        # TAB 3: RELACIONES (SCATTER PLOTS)
         with tab3:
-            st.subheader("Explorador de Relaciones Dinámicas")
+            st.subheader("Explorador de Correlaciones")
             if len(cols_num) >= 2:
                 col_x, col_y = st.columns(2)
                 with col_x:
-                    sel_x = st.selectbox("Eje X (Numérico):", cols_num, key="x_axis_unique")
+                    sel_x = st.selectbox("Eje X (Numérico):", cols_num, key="x_universal")
                 with col_y:
-                    sel_y = st.selectbox("Eje Y (Numérico):", cols_num, key="y_axis_unique")
+                    sel_y = st.selectbox("Eje Y (Numérico):", cols_num, key="y_universal")
                 
-                sel_col = st.selectbox("Color por (Categoría):", ["Sin color"] + cols_cat)
+                sel_color = st.selectbox("Color por (Categoría):", ["Ninguno"] + cols_cat)
                 
-                # CORRECCIÓN: Parámetros dinámicos para Scatter
-                scatter_params = {
-                    "data_frame": df,
-                    "x": sel_x,
-                    "y": sel_y,
-                    "title": f"{sel_x} vs {sel_y}"
-                }
+                # Configuración dinámica del scatter
+                params = {"data_frame": df, "x": sel_x, "y": sel_y, "title": f"{sel_x} vs {sel_y}"}
+                if sel_color != "Ninguno":
+                    params["color"] = sel_color
                 
-                if sel_col != "Sin color":
-                    scatter_params["color"] = sel_col
-                else:
-                    # Solo añadir línea de tendencia si NO hay color (para evitar errores de compatibilidad)
-                    scatter_params["trendline"] = "ols"
-
-                fig_scatter = px.scatter(**scatter_params)
+                fig_scatter = px.scatter(**params)
                 st.plotly_chart(fig_scatter, use_container_width=True)
+                
+                # Matriz de correlación térmica
+                if st.checkbox("Mostrar mapa de calor de correlación"):
+                    fig_corr, ax = plt.subplots()
+                    sns.heatmap(df[cols_num].corr(), annot=True, cmap='coolwarm', ax=ax)
+                    st.pyplot(fig_corr)
             else:
-                st.error("Se necesitan más datos numéricos.")
+                st.error("Se necesitan al menos 2 columnas numéricas para comparar relaciones.")
 
     except Exception as e:
-        st.error(f"❌ Error al procesar el archivo: {e}")
+        st.error(f"❌ Error crítico al procesar el archivo: {e}")
 
 else:
-    st.info("💡 Sube un archivo CSV para comenzar.")
+    st.info("👋 Por favor, carga un archivo .csv en el panel de arriba para iniciar el análisis.")
