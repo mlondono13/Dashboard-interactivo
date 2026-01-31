@@ -3,22 +3,26 @@ import pandas as pd
 import plotly.express as px
 import seaborn as sns
 import matplotlib.pyplot as plt
+from groq import Groq
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="Analizador Universal de Datos", layout="wide")
+st.set_page_config(page_title="Universal EDA & AI Assistant", layout="wide")
 
-st.title("📂 Explorador de Datos Inteligente (EDA)")
-st.markdown("Carga tu archivo CSV y la herramienta adaptará las gráficas automáticamente.")
+st.title("📂 Explorador de Datos + Asistente AI")
+st.markdown("Carga tu dataset y utiliza Inteligencia Artificial para interpretar los hallazgos.")
+
+# --- BARRA LATERAL: API KEY Y FILTROS ---
+st.sidebar.header("🔑 Configuración de Groq")
+groq_api_key = st.sidebar.text_input("Ingresa tu Groq API Key:", type="password")
 
 # --- CARGA DE DATOS ---
 uploaded_file = st.file_uploader("Sube tu archivo CSV aquí", type=['csv'])
 
 if uploaded_file is not None:
     try:
-        # 2. SOLUCIÓN A COLUMNAS DUPLICADAS
         df = pd.read_csv(uploaded_file)
         
-        # Renombrar columnas duplicadas automáticamente (ej. Sensor, Sensor_1)
+        # Limpieza de duplicados
         cols = pd.Series(df.columns)
         for i, col in enumerate(cols):
             if (cols == col).sum() > 1:
@@ -26,96 +30,87 @@ if uploaded_file is not None:
                 if count > 0:
                     cols[i] = f"{col}_{count}"
         df.columns = cols
-
-        # Limpieza básica
         df = df.dropna()
 
-        # 3. DETECCIÓN AUTOMÁTICA DE VARIABLES
-        # Numéricas: float e int / Categóricas: object y category
         cols_num = df.select_dtypes(include=['number']).columns.tolist()
         cols_cat = df.select_dtypes(include=['object', 'category']).columns.tolist()
 
-        # --- SIDEBAR DINÁMICO (FILTROS) ---
-        st.sidebar.header("⚙️ Filtros Globales")
-        if cols_cat:
-            col_filtro = st.sidebar.selectbox("Segmentar datos por:", ["Sin filtro"] + cols_cat)
-            if col_filtro != "Sin filtro":
-                opciones = st.sidebar.multiselect(f"Valores de {col_filtro}:", 
-                                                 options=df[col_filtro].unique().tolist(),
-                                                 default=df[col_filtro].unique().tolist())
-                df = df[df[col_filtro].isin(opciones)]
-
         # --- SECCIONES DEL EDA (TABS) ---
-        tab1, tab2, tab3 = st.tabs(["🔢 Cuantitativo", "🗂️ Cualitativo", "📈 Gráficas Cruzadas"])
+        tab1, tab2, tab3, tab4 = st.tabs(["🔢 Cuantitativo", "🗂️ Cualitativo", "📈 Gráficas", "🤖 Asistente AI"])
 
-        # TAB 1: ANÁLISIS NUMÉRICO
+        # TAB 1, 2 y 3 (Mantienen la lógica anterior)
         with tab1:
             if cols_num:
-                st.subheader("Distribución de Variables Numéricas")
-                var_num = st.selectbox("Selecciona una métrica:", cols_num)
-                
-                c1, c2 = st.columns([2, 1])
-                with c1:
-                    fig_hist = px.histogram(df, x=var_num, marginal="box", 
-                                            title=f"Análisis de {var_num}",
-                                            color_discrete_sequence=['#3366CC'])
-                    st.plotly_chart(fig_hist, use_container_width=True)
-                with c2:
-                    st.write("**Estadísticas Descriptivas:**")
-                    st.table(df[var_num].describe())
-            else:
-                st.warning("No se detectaron columnas numéricas.")
+                var_num = st.selectbox("Selecciona métrica:", cols_num)
+                fig_hist = px.histogram(df, x=var_num, marginal="box", title=f"Análisis de {var_num}")
+                st.plotly_chart(fig_hist, use_container_width=True)
+                st.table(df[var_num].describe())
 
-        # TAB 2: ANÁLISIS CATEGÓRICO
         with tab2:
             if cols_cat:
-                st.subheader("Análisis de Frecuencias")
-                var_cat = st.selectbox("Selecciona una categoría:", cols_cat)
-                
-                # Solución al error de 'index': Renombrar columnas explícitamente
+                var_cat = st.selectbox("Selecciona categoría:", cols_cat)
                 df_counts = df[var_cat].value_counts().reset_index()
                 df_counts.columns = [var_cat, 'conteo']
-                
-                fig_bar = px.bar(df_counts, 
-                                 x=var_cat, 
-                                 y='conteo', 
-                                 title=f"Distribución de {var_cat}",
-                                 color=var_cat,
-                                 color_discrete_sequence=px.colors.qualitative.Pastel)
+                fig_bar = px.bar(df_counts, x=var_cat, y='conteo', color=var_cat)
                 st.plotly_chart(fig_bar, use_container_width=True)
-            else:
-                st.warning("No se detectaron columnas categóricas.")
 
-        # TAB 3: RELACIONES (SCATTER PLOTS)
         with tab3:
-            st.subheader("Explorador de Correlaciones")
             if len(cols_num) >= 2:
-                col_x, col_y = st.columns(2)
-                with col_x:
-                    sel_x = st.selectbox("Eje X (Numérico):", cols_num, key="x_universal")
-                with col_y:
-                    sel_y = st.selectbox("Eje Y (Numérico):", cols_num, key="y_universal")
-                
-                sel_color = st.selectbox("Color por (Categoría):", ["Ninguno"] + cols_cat)
-                
-                # Configuración dinámica del scatter
-                params = {"data_frame": df, "x": sel_x, "y": sel_y, "title": f"{sel_x} vs {sel_y}"}
-                if sel_color != "Ninguno":
-                    params["color"] = sel_color
-                
-                fig_scatter = px.scatter(**params)
-                st.plotly_chart(fig_scatter, use_container_width=True)
-                
-                # Matriz de correlación térmica
-                if st.checkbox("Mostrar mapa de calor de correlación"):
-                    fig_corr, ax = plt.subplots()
-                    sns.heatmap(df[cols_num].corr(), annot=True, cmap='coolwarm', ax=ax)
-                    st.pyplot(fig_corr)
+                c_x = st.selectbox("Eje X:", cols_num, key="x_asist")
+                c_y = st.selectbox("Eje Y:", cols_num, key="y_asist")
+                fig_scat = px.scatter(df, x=c_x, y=c_y, title=f"{c_x} vs {c_y}")
+                st.plotly_chart(fig_scat, use_container_width=True)
+
+        # --- TAB 4: ASISTENTE AI CON LLAMA 3.3 ---
+        with tab4:
+            st.header("Chat con Llama 3.3 Versatile")
+            
+            if not groq_api_key:
+                st.warning("⚠️ Por favor, ingresa tu API Key de Groq en la barra lateral para activar el asistente.")
             else:
-                st.error("Se necesitan al menos 2 columnas numéricas para comparar relaciones.")
+                user_question = st.text_area("Pregunta algo sobre tus datos:", 
+                                            placeholder="Ej: ¿Qué tendencia observas entre el uso de redes y el sueño?")
+                
+                if st.button("Analizar con IA"):
+                    if user_question:
+                        try:
+                            client = Groq(api_key=groq_api_key)
+                            
+                            # Preparamos un resumen de los datos para darle contexto a la IA
+                            data_summary = f"""
+                            El dataset tiene {df.shape[0]} filas y {df.shape[1]} columnas.
+                            Columnas numéricas: {cols_num}
+                            Columnas categóricas: {cols_cat}
+                            Resumen estadístico básico:
+                            {df.describe().to_string()}
+                            """
+                            
+                            with st.spinner("Llama 3.3 está pensando..."):
+                                chat_completion = client.chat.completions.create(
+                                    messages=[
+                                        {
+                                            "role": "system",
+                                            "content": "Eres un experto analista de datos. Utiliza el resumen del dataset proporcionado para responder de forma concisa y profesional."
+                                        },
+                                        {
+                                            "role": "user",
+                                            "content": f"Contexto del dataset:\n{data_summary}\n\nPregunta del usuario: {user_question}"
+                                        }
+                                    ],
+                                    model="llama-3.3-70b-versatile",
+                                )
+                                
+                                response = chat_completion.choices[0].message.content
+                                st.markdown("### 💡 Respuesta del Asistente:")
+                                st.write(response)
+                                
+                        except Exception as e:
+                            st.error(f"Error con la API de Groq: {e}")
+                    else:
+                        st.info("Escribe una pregunta para continuar.")
 
     except Exception as e:
-        st.error(f"❌ Error crítico al procesar el archivo: {e}")
+        st.error(f"❌ Error crítico: {e}")
 
 else:
-    st.info("👋 Por favor, carga un archivo .csv en el panel de arriba para iniciar el análisis.")
+    st.info("👋 Carga un CSV para habilitar el análisis y el asistente AI.")
