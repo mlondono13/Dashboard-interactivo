@@ -18,11 +18,10 @@ if uploaded_file is not None:
         # Intentar leer el archivo
         df = pd.read_csv(uploaded_file)
         
-        # Limpieza básica de nulos para que no rompa las gráficas
+        # Limpieza básica para evitar errores en gráficas
         df = df.dropna()
 
         # IDENTIFICACIÓN DINÁMICA DE COLUMNAS
-        # Filtramos columnas por tipo de dato
         cols_num = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
         cols_cat = df.select_dtypes(include=['object', 'category']).columns.tolist()
 
@@ -32,8 +31,8 @@ if uploaded_file is not None:
             col_filtro = st.sidebar.selectbox("Filtrar por:", ["Ninguno"] + cols_cat)
             if col_filtro != "Ninguno":
                 opciones = st.sidebar.multiselect(f"Valores de {col_filtro}:", 
-                                                 options=df[col_filtro].unique(),
-                                                 default=df[col_filtro].unique())
+                                                 options=df[col_filtro].unique().tolist(),
+                                                 default=df[col_filtro].unique().tolist())
                 df = df[df[col_filtro].isin(opciones)]
 
         # --- SECCIONES EDA ---
@@ -47,6 +46,7 @@ if uploaded_file is not None:
                 
                 c1, c2 = st.columns([2, 1])
                 with c1:
+                    # CORRECCIÓN: Histogramas directos
                     fig_hist = px.histogram(df, x=var_num, marginal="box", 
                                             title=f"Distribución de {var_num}",
                                             color_discrete_sequence=['#636EFA'])
@@ -54,54 +54,62 @@ if uploaded_file is not None:
                 with c2:
                     st.write("**Estadísticas:**")
                     st.table(df[var_num].describe())
-                
-                if len(cols_num) > 1:
-                    st.subheader("Matriz de Correlación")
-                    fig_corr, ax = plt.subplots(figsize=(10, 5))
-                    sns.heatmap(df[cols_num].corr(), annot=True, cmap='RdBu', ax=ax)
-                    st.pyplot(fig_corr)
             else:
-                st.warning("No se encontraron columnas numéricas en este archivo.")
+                st.warning("No hay columnas numéricas.")
 
-        # 2. ANÁLISIS CUALITATIVO
+        # 2. ANÁLISIS CUALITATIVO (AQUÍ ESTABA EL ERROR)
         with tab2:
             if cols_cat:
                 st.subheader("Análisis de Variables Categóricas")
                 var_cat = st.selectbox("Selecciona Variable Categórica:", cols_cat)
                 
-                fig_bar = px.bar(df[var_cat].value_counts().reset_index(), 
-                                 x='index', y=var_cat, 
-                                 title=f"Conteo de {var_cat}",
-                                 labels={'index': var_cat, var_cat: 'Frecuencia'},
-                                 color='index')
+                # CORRECCIÓN: Usamos un método más seguro para el conteo
+                df_counts = df[var_cat].value_counts().reset_index()
+                # Renombramos explícitamente las columnas para evitar el error de 'index'
+                df_counts.columns = [var_cat, 'conteo']
+                
+                fig_bar = px.bar(df_counts, 
+                                 x=var_cat, 
+                                 y='conteo', 
+                                 title=f"Frecuencia de {var_cat}",
+                                 color=var_cat)
                 st.plotly_chart(fig_bar, use_container_width=True)
             else:
-                st.warning("No se encontraron columnas categóricas.")
+                st.warning("No hay columnas categóricas.")
 
-        # 3. GRÁFICAS CRUZADAS (EL "MOTOR" DEL EDA)
+        # 3. GRÁFICAS CRUZADAS
         with tab3:
             st.subheader("Explorador de Relaciones Dinámicas")
             if len(cols_num) >= 2:
                 col_x, col_y = st.columns(2)
                 with col_x:
-                    sel_x = st.selectbox("Eje X (Numérico):", cols_num, key="x_axis")
+                    sel_x = st.selectbox("Eje X (Numérico):", cols_num, key="x_axis_unique")
                 with col_y:
-                    sel_y = st.selectbox("Eje Y (Numérico):", cols_num, key="y_axis")
+                    sel_y = st.selectbox("Eje Y (Numérico):", cols_num, key="y_axis_unique")
                 
                 sel_col = st.selectbox("Color por (Categoría):", ["Sin color"] + cols_cat)
                 
-                color_param = sel_col if sel_col != "Sin color" else None
+                # CORRECCIÓN: Parámetros dinámicos para Scatter
+                scatter_params = {
+                    "data_frame": df,
+                    "x": sel_x,
+                    "y": sel_y,
+                    "title": f"{sel_x} vs {sel_y}"
+                }
                 
-                fig_scatter = px.scatter(df, x=sel_x, y=sel_y, color=color_param,
-                                         title=f"{sel_x} vs {sel_y}",
-                                         trendline="ols" if not color_param else None)
+                if sel_col != "Sin color":
+                    scatter_params["color"] = sel_col
+                else:
+                    # Solo añadir línea de tendencia si NO hay color (para evitar errores de compatibilidad)
+                    scatter_params["trendline"] = "ols"
+
+                fig_scatter = px.scatter(**scatter_params)
                 st.plotly_chart(fig_scatter, use_container_width=True)
             else:
-                st.error("Se necesitan al menos 2 columnas numéricas para graficar relaciones.")
+                st.error("Se necesitan más datos numéricos.")
 
     except Exception as e:
         st.error(f"❌ Error al procesar el archivo: {e}")
-        st.info("Asegúrate de que el CSV no esté vacío y tenga un formato estándar.")
 
 else:
-    st.info("💡 Sube un archivo CSV (como 'energia_renovable.csv' o 'social_media.csv') para comenzar.")
+    st.info("💡 Sube un archivo CSV para comenzar.")
